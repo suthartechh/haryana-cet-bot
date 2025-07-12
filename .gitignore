@@ -1,0 +1,9 @@
+# Ignore dependencies
+node_modules/
+
+# Ignore env and zip files
+.env
+*.zip
+
+# Optional: ignore log files
+npm-debug.log
