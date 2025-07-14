@@ -1,5 +1,7 @@
 // index.js
 import TelegramBot from "node-telegram-bot-api";
+import express from "express";
+import bodyParser from "body-parser";
 import dotenv from "dotenv";
 import { getQuizQuestion } from "./gemini.js";
 import { connectDB } from "./db.js";
@@ -9,10 +11,19 @@ import User from "./models/User.js";
 dotenv.config();
 await connectDB();
 
-const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
+const app = express();
+app.use(bodyParser.json());
+
+const TOKEN = process.env.BOT_TOKEN;
+const URL = process.env.BOT_WEBHOOK_URL;
+const PORT = process.env.PORT || 3000;
+
+const bot = new TelegramBot(TOKEN, { webHook: { port: PORT } });
+bot.setWebHook(`${URL}/bot${TOKEN}`);
+
 const quizStates = {};
 const userSteps = {};
-const unansweredCounts = {}; // Track how many quizzes user skipped
+const unansweredCounts = {};
 
 const replyKeyboard = {
   reply_markup: {
@@ -23,6 +34,11 @@ const replyKeyboard = {
     input_field_placeholder: "Start or Stop Quiz",
   },
 };
+
+app.post(`/bot${TOKEN}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
 
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
@@ -88,7 +104,7 @@ bot.onText(/\/sutharadmin/, (msg) => {
 bot.on("poll_answer", (answer) => {
   const chatId = answer.user.id;
   if (quizStates[chatId]) {
-    unansweredCounts[chatId] = 0; // user answered
+    unansweredCounts[chatId] = 0;
   }
 });
 
@@ -99,7 +115,7 @@ async function sendQuiz(chatId) {
     const quiz = await getQuizQuestion();
     const correctIndex = parseInt(quiz.correct);
 
-    const poll = await bot.sendPoll(chatId, `🧠 ${quiz.question}`, quiz.options, {
+    await bot.sendPoll(chatId, `🧠 ${quiz.question}`, quiz.options, {
       type: "quiz",
       correct_option_id: correctIndex,
       is_anonymous: false,
@@ -108,7 +124,7 @@ async function sendQuiz(chatId) {
 
     let answered = false;
 
-    const timeout = setTimeout(async () => {
+    setTimeout(async () => {
       if (!answered) {
         unansweredCounts[chatId] = (unansweredCounts[chatId] || 0) + 1;
         if (unansweredCounts[chatId] >= 5) {
@@ -146,10 +162,13 @@ async function sendQuiz(chatId) {
   }
 }
 
+app.listen(PORT, () => {
+  console.log(`🚀 Webhook server running on port ${PORT}`);
+});
+
 process.on("uncaughtException", (err) => {
   console.error("❌ Uncaught Exception:", err);
 });
-
 process.on("unhandledRejection", (reason) => {
   console.error("❌ Unhandled Rejection:", reason);
 });
