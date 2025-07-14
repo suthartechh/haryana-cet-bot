@@ -1,29 +1,30 @@
 // index.js
-import TelegramBot from "node-telegram-bot-api";
 import express from "express";
-import bodyParser from "body-parser";
+import TelegramBot from "node-telegram-bot-api";
 import dotenv from "dotenv";
 import { getQuizQuestion } from "./gemini.js";
 import { connectDB } from "./db.js";
 import { handleAdminCommand } from "./admin.js";
 import User from "./models/User.js";
+import fetch from "node-fetch";
 
 dotenv.config();
-await connectDB();
 
 const app = express();
-app.use(bodyParser.json());
+app.use(express.json());
 
-const TOKEN = process.env.BOT_TOKEN;
-const URL = process.env.BOT_WEBHOOK_URL;
-const PORT = process.env.PORT || 3000;
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const WEBHOOK_URL = `${process.env.BASE_URL}/bot${BOT_TOKEN}`;
+const PORT = process.env.PORT || 10000;
 
-const bot = new TelegramBot(TOKEN, { webHook: { port: PORT } });
-bot.setWebHook(`${URL}/bot${TOKEN}`);
+await connectDB();
+
+const bot = new TelegramBot(BOT_TOKEN, { webHook: { port: PORT } });
+bot.setWebHook(WEBHOOK_URL);
 
 const quizStates = {};
 const userSteps = {};
-const unansweredCounts = {};
+const unansweredCounts = {}; // Track how many quizzes user skipped
 
 const replyKeyboard = {
   reply_markup: {
@@ -34,11 +35,6 @@ const replyKeyboard = {
     input_field_placeholder: "Start or Stop Quiz",
   },
 };
-
-app.post(`/bot${TOKEN}`, (req, res) => {
-  bot.processUpdate(req.body);
-  res.sendStatus(200);
-});
 
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
@@ -66,7 +62,7 @@ bot.on("message", async (msg) => {
     if (step === "ask_name") {
       userSteps[chatId].name = text;
       userSteps[chatId].step = "ask_state";
-      return bot.sendMessage(chatId, "🏞️ आप किस राज्य से हैं?", replyKeyboard);
+      return bot.sendMessage(chatId, "🌾 आप किस राज्य से हैं?", replyKeyboard);
     }
 
     if (step === "ask_state") {
@@ -104,7 +100,7 @@ bot.onText(/\/sutharadmin/, (msg) => {
 bot.on("poll_answer", (answer) => {
   const chatId = answer.user.id;
   if (quizStates[chatId]) {
-    unansweredCounts[chatId] = 0;
+    unansweredCounts[chatId] = 0; // user answered
   }
 });
 
@@ -115,7 +111,7 @@ async function sendQuiz(chatId) {
     const quiz = await getQuizQuestion();
     const correctIndex = parseInt(quiz.correct);
 
-    await bot.sendPoll(chatId, `🧠 ${quiz.question}`, quiz.options, {
+    const poll = await bot.sendPoll(chatId, `🧐 ${quiz.question}`, quiz.options, {
       type: "quiz",
       correct_option_id: correctIndex,
       is_anonymous: false,
@@ -129,9 +125,9 @@ async function sendQuiz(chatId) {
         unansweredCounts[chatId] = (unansweredCounts[chatId] || 0) + 1;
         if (unansweredCounts[chatId] >= 5) {
           quizStates[chatId].active = false;
-          await bot.sendMessage(chatId, "⚠️ आपने लगातार 5 सवालों का जवाब नहीं दिया। Quiz रोक दिया गया।", replyKeyboard);
+          await bot.sendMessage(chatId, `⚠️ आपने लगातार 5 सवालों का जवाब नहीं दिया। Quiz रोक दिया गया।`, replyKeyboard);
           await new Promise((res) => setTimeout(res, 10000));
-          await bot.sendMessage(chatId, "▶️ Quiz को फिर से शुरू करने के लिए 'Start Quiz' दबाएं।", replyKeyboard);
+          await bot.sendMessage(chatId, `▶️ Quiz को फिर से शुरू करने के लिए 'Start Quiz' दबाएं।`, replyKeyboard);
           return;
         }
       }
@@ -162,13 +158,20 @@ async function sendQuiz(chatId) {
   }
 }
 
-app.listen(PORT, () => {
-  console.log(`🚀 Webhook server running on port ${PORT}`);
+process.on("unhandledRejection", (reason) => {
+  console.error("❌ Unhandled Rejection:", reason);
 });
 
 process.on("uncaughtException", (err) => {
   console.error("❌ Uncaught Exception:", err);
 });
-process.on("unhandledRejection", (reason) => {
-  console.error("❌ Unhandled Rejection:", reason);
+
+app.post(`/bot${BOT_TOKEN}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
+
+app.listen(PORT, () => {
+  console.log(`✅ MongoDB connected`);
+  console.log(`🚀 Webhook server running on port ${PORT}`);
 });
