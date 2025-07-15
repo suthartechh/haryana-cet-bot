@@ -38,7 +38,9 @@ function getRandomSubtopic() {
 export async function getQuizQuestion() {
   const subtopic = getRandomSubtopic();
 
-  const prompt = `"${subtopic}" विषय पर हरियाणा CET / HSSC / HPSC स्तर का एक बहुविकल्पीय प्रश्न हिंदी में बनाएं। har quition unic to jo phle kise ne nhi puchha ho
+  const prompt = `"${subtopic}" विषय पर हरियाणा CET / HSSC / HPSC स्तर का एक बेहद कठिन, दुर्लभ और यूनिक बहुविकल्पीय प्रश्न हिंदी में बनाएं।
+
+❗ प्रश्न ऐसा हो जो अब तक किसी भी परीक्षा में नहीं पूछा गया हो, बहुत ही उच्च स्तर का और कम ज्ञात तथ्यों पर आधारित हो — जैसे कि सबसे पुराने ऐतिहासिक तथ्यों या हाल ही की घटनाओं से संबंधित।
 
 ❗ केवल इस फॉर्मेट में उत्तर दें (बिना किसी व्याख्या के):
 
