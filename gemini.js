@@ -38,8 +38,7 @@ function getRandomSubtopic() {
 export async function getQuizQuestion() {
   const subtopic = getRandomSubtopic();
 
-  const prompt = `
-"${subtopic}" विषय पर हरियाणा CET / HSSC / HPSC स्तर का एक बहुविकल्पीय प्रश्न हिंदी में बनाएं।
+  const prompt = `"${subtopic}" विषय पर हरियाणा CET / HSSC / HPSC स्तर का एक बहुविकल्पीय प्रश्न हिंदी में बनाएं। har quition unic to jo phle kise ne nhi puchha ho
 
 ❗ केवल इस फॉर्मेट में उत्तर दें (बिना किसी व्याख्या के):
 
@@ -48,7 +47,13 @@ A. ...
 B. ...
 C. ...
 D. ...
-उत्तर: A (या B, C, D — केवल एक अक्षर)`;
+उत्तर: A (या B, C, D — केवल एक अक्षर)
+
+👇 फिर उसी प्रश्न से संबंधित 6–7 बिंदुओं में एक संक्षिप्त विवरण (Short Notes / Bio / Explanation) दें, जैसे:
+- पहला मुख्यमंत्री कौन थे
+- कब पद संभाला
+- प्रमुख उपलब्धियाँ
+- कितनी बार मुख्यमंत्री रहे`;
 
   try {
     const res = await fetch(
@@ -83,20 +88,24 @@ function parseGeminiResponse(text) {
   const question = questionLine?.replace(/^प्रश्न[:：]?\s*/, "");
 
   const options = lines
-    .filter(line => /^[A-D][\.\-:：]?\s*/.test(line))
-    .map(line => line.replace(/^[A-D][\.\-:：]?\s*/, "").trim());
+    .filter(line => /^[A-D][\.-:：]?\s*/.test(line))
+    .map(line => line.replace(/^[A-D][\.-:：]?\s*/, "").trim());
 
   const answerLine = lines.find(line => /^उत्तर[:：]?\s*/.test(line));
   const raw = answerLine?.replace(/^उत्तर[:：]?\s*/, "").trim();
   const correctIndex = { A: 0, B: 1, C: 2, D: 3 }[raw?.toUpperCase()] ?? -1;
 
-  if (!question || options.length !== 4 || correctIndex === -1) {
-    throw new Error("Correct answer not in options");
+  const bioStart = lines.findIndex(line => line.startsWith("-"));
+  const explanation = lines.slice(bioStart).join("\n");
+
+  if (!question || options.length !== 4 || correctIndex === -1 || !explanation) {
+    throw new Error("Gemini response missing required parts");
   }
 
   return {
     question,
     options,
     correct: correctIndex.toString(),
+    explanation,
   };
 }

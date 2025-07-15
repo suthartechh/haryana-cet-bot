@@ -4,9 +4,7 @@ import TelegramBot from "node-telegram-bot-api";
 import dotenv from "dotenv";
 import { getQuizQuestion } from "./gemini.js";
 import { connectDB } from "./db.js";
-import { handleAdminCommand } from "./admin.js";
 import User from "./models/User.js";
-import fetch from "node-fetch";
 
 dotenv.config();
 
@@ -22,9 +20,9 @@ await connectDB();
 const bot = new TelegramBot(BOT_TOKEN, { webHook: { port: PORT } });
 bot.setWebHook(WEBHOOK_URL);
 
-const quizStates = {};
-const userSteps = {};
-const unansweredCounts = {}; // Track how many quizzes user skipped
+const quizStates = {}; // Stores per-user quiz state and history
+const userSteps = {};  // For onboarding (name/state)
+const unansweredCounts = {}; // Count unanswered quizzes
 
 const replyKeyboard = {
   reply_markup: {
@@ -66,11 +64,7 @@ bot.on("message", async (msg) => {
     }
 
     if (step === "ask_state") {
-      await User.create({
-        telegramId: chatId,
-        name: userSteps[chatId].name,
-        state: text,
-      });
+      await User.create({ telegramId: chatId, name: userSteps[chatId].name, state: text });
       delete userSteps[chatId];
       return bot.sendMessage(chatId, `✅ धन्यवाद! अब आप क्विज़ शुरू कर सकते हैं।`, replyKeyboard);
     }
@@ -81,27 +75,36 @@ bot.on("message", async (msg) => {
     if (quizStates[chatId]?.active) {
       return bot.sendMessage(chatId, "⚠️ Quiz already running.", replyKeyboard);
     }
-    quizStates[chatId] = { active: true };
+    quizStates[chatId] = { active: true, history: [] };
     unansweredCounts[chatId] = 0;
     await bot.sendMessage(chatId, "✅ Quiz started!", replyKeyboard);
     sendQuiz(chatId);
   }
 
   if (lower === "⏹ stop quiz") {
-    quizStates[chatId] = { active: false };
+    quizStates[chatId] = { active: false, history: [] };
     await bot.sendMessage(chatId, "🛑 Quiz stopped.", replyKeyboard);
   }
 });
 
-bot.onText(/\/sutharadmin/, (msg) => {
-  handleAdminCommand(bot, msg);
-});
-
-bot.on("poll_answer", (answer) => {
+bot.on("poll_answer", async (answer) => {
   const chatId = answer.user.id;
-  if (quizStates[chatId]) {
-    unansweredCounts[chatId] = 0; // user answered
-  }
+
+  if (!quizStates[chatId]?.active) return;
+
+  unansweredCounts[chatId] = 0;
+
+  const lastQuiz = quizStates[chatId].history?.slice(-1)[0];
+  if (!lastQuiz) return;
+
+  const explanation = lastQuiz.explanation || "इस प्रश्न का विवरण उपलब्ध नहीं है।";
+
+  await bot.sendMessage(chatId, `📚 *संपूर्ण विवरण:*
+${explanation}`, { parse_mode: "Markdown" });
+
+  setTimeout(() => {
+    sendQuiz(chatId);
+  }, 3000);
 });
 
 async function sendQuiz(chatId) {
@@ -111,46 +114,19 @@ async function sendQuiz(chatId) {
     const quiz = await getQuizQuestion();
     const correctIndex = parseInt(quiz.correct);
 
-    const poll = await bot.sendPoll(chatId, `🧐 ${quiz.question}`, quiz.options, {
+    quiz.explanation = quiz.explanation || "इस प्रश्न का विवरण उपलब्ध नहीं है।";
+
+    if (quizStates[chatId].history.length >= 5) {
+      quizStates[chatId].history.shift();
+    }
+    quizStates[chatId].history.push(quiz);
+
+    await bot.sendPoll(chatId, `😮 ${quiz.question}`, quiz.options, {
       type: "quiz",
       correct_option_id: correctIndex,
       is_anonymous: false,
       explanation: `✅ सही उत्तर: ${quiz.options[correctIndex]}`,
     });
-
-    let answered = false;
-
-    setTimeout(async () => {
-      if (!answered) {
-        unansweredCounts[chatId] = (unansweredCounts[chatId] || 0) + 1;
-        if (unansweredCounts[chatId] >= 5) {
-          quizStates[chatId].active = false;
-          await bot.sendMessage(chatId, `⚠️ आपने लगातार 5 सवालों का जवाब नहीं दिया। Quiz रोक दिया गया।`, replyKeyboard);
-          await new Promise((res) => setTimeout(res, 10000));
-          await bot.sendMessage(chatId, `▶️ Quiz को फिर से शुरू करने के लिए 'Start Quiz' दबाएं।`, replyKeyboard);
-          return;
-        }
-      }
-    }, 7000);
-
-    setTimeout(async () => {
-      let seconds = 5;
-      const countdownMsg = await bot.sendMessage(chatId, `⏳ अगले सवाल तक ${seconds} सेकंड...`, replyKeyboard);
-
-      const timer = setInterval(async () => {
-        seconds--;
-        if (seconds <= 0) {
-          clearInterval(timer);
-          await bot.deleteMessage(chatId, countdownMsg.message_id).catch(() => {});
-          sendQuiz(chatId);
-        } else {
-          await bot.editMessageText(`⏳ अगले सवाल तक ${seconds} सेकंड...`, {
-            chat_id: chatId,
-            message_id: countdownMsg.message_id,
-          }).catch(() => {});
-        }
-      }, 1000);
-    }, 7000);
   } catch (err) {
     console.error("❌ Gemini Error:", err.message);
     await bot.sendMessage(chatId, "⚠️ Gemini error. Retrying in 10s...", replyKeyboard);
