@@ -129,7 +129,7 @@ async function sendQuiz(chatId) {
     });
   } catch (err) {
     console.error("❌ Gemini Error:", err.message);
-    await bot.sendMessage(chatId, "⚠️ Gemini error. Retrying in 10s...", replyKeyboard);
+    await bot.sendMessage(chatId, "⚠️ Sorry Server Error Wait Only 10s...", replyKeyboard);
     setTimeout(() => sendQuiz(chatId), 10000);
   }
 }
